@@ -1,0 +1,16 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pycharm
+.idea
+
+# Secret tokens
+secret_tokens.py
+
+# Database files
+*.db
+
+# Logs
+*.log
