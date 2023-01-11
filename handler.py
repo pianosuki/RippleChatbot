@@ -15,6 +15,38 @@ class ChatHandler:
             "is editing",
             "is watching"
         ]
+        self.mod_names = {
+            "-Easy": "EZ",
+            "-NoFail": "NF",
+            "-HalfTime": "HT",
+            "-SpunOut": "SO",
+            "+Hidden": "HD",
+            "+SuddenDeath": "SD",
+            "+Perfect": "PF",
+            "+HardRock": "HR",
+            "+DoubleTime": "DT",
+            "+Nightcore": "NC",
+            "+Flashlight": "FL",
+            "~Relax~": "RX",
+            "~Autopilot~": "AP",
+            "|Autoplay|": "AT",
+            "|Cinema|": "CM",
+            "|1K|": "1K",
+            "|2K|": "2K",
+            "|3K|": "3K",
+            "|4K|": "4K",
+            "|5K|": "5K",
+            "|6K|": "6K",
+            "|7K|": "7K",
+            "|8K|": "8K",
+            "|9K|": "9K",
+            "|10K|": "10K",
+            "|12K|": "12K",
+            "|14K|": "14K",
+            "|16K|": "16K",
+            "|18K|": "18K",
+            "|20K|": "20K"
+        }
 
     def handle_input(self, input):
         # Initialize context manager
@@ -93,20 +125,46 @@ class ChatHandler:
 
     def send_beatconnect_link(self, ctx):
             # Compile regex patterns
-            link_pattern = re.compile(r"https://osu.(ripple.moe|ppy.sh)/beatmapsets/[0-9]{1,10}#/[0-9]{1,10}")
-            beatmapset_id_pattern = re.compile(r"\d+")
-            beatmap_id_pattern = re.compile(r"(?:\d+#/)(\d+)")
+            link_pattern = re.compile(r"https://osu.(ripple.moe|ppy.sh)/beatmapsets/[0-9]+#/[0-9]+")
+            beatmapset_id_pattern = re.compile(r"(?<=/)\d+(?=#)")
+            beatmap_id_pattern = re.compile(r"(?<=#/)\d+(?=$)")
+            song_standalone_pattern = re.compile(r".+\s-\s.+(?=\])")
+            song_with_difficulty_pattern = re.compile(r".+\s-\s.+(?=\s\[(.+)\]\])")
+            difficulty_pattern = re.compile(r"(?<=\[)(.+)(?=\]\])")
+            mods_pattern = re.compile("|".join([re.escape(mod) for mod in self.mod_names.keys()]))
 
             # Check if link is found and valid
-            match = link_pattern.search(ctx.message)
-            if match:
-                # Set /np link, Beatmapset ID, Beatmap ID, and song string
-                np_link = match.group()
-                ctx.beatmapset_id = beatmapset_id_pattern.search(np_link).group()
-                ctx.beatmap_id = beatmap_id_pattern.search(np_link).group()
-                song = re.sub(r"(?<=\S)][\x01](?=$)", "", ctx.message[match.end():]).lstrip()
+            link_match = link_pattern.search(ctx.message)
+            if link_match:
+                # Grab Beatmapset ID and Beatmap ID from original /np link
+                np_link = link_match.group()
+                ctx.beatmapset_id = int(beatmapset_id_pattern.search(np_link).group())
+                ctx.beatmap_id = int(beatmap_id_pattern.search(np_link).group())
+
+                # Find song then difficulty AND/OR mods if appropriate
+                match ctx.action:
+                    case x if x == self.action_phrases[0]: # Listening
+                        # String guaranteed to contain neither difficulty nor mods
+                        ctx.song = song_standalone_pattern.search(ctx.message[link_match.end() + 1:]).group()
+
+                    case x if x == self.action_phrases[1] or x == self.action_phrases[3]: # Playing OR Watching
+                        # String guaranteed to contain difficulty but may or may not contain mods
+                        song_match = song_with_difficulty_pattern.search(ctx.message[link_match.end() + 1:])
+                        ctx.song = song_match.group()
+                        difficulty_match = difficulty_pattern.search(ctx.message[song_match.end():])
+                        ctx.difficulty = difficulty_match.group()
+                        mods_match = mods_pattern.findall(ctx.message[difficulty_match.end() + 3:])
+                        if mods_match: ctx.mods = [self.mod_names[mod] for mod in mods_match]
+
+                    case x if x == self.action_phrases[2]: # Editing
+                        # String guaranteed to contain difficulty and not contain mods
+                        song_match = song_with_difficulty_pattern.search(ctx.message[link_match.end() + 1:])
+                        ctx.song = song_match.group()
+                        difficulty_match = difficulty_pattern.search(ctx.message[song_match.end():])
+                        ctx.difficulty = difficulty_match.group()
+
                 # Compose beatconnect link using collected variables
-                return f"PRIVMSG {ctx.channel} :[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {song}]\n"
+                return f"PRIVMSG {ctx.channel} :[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]\n"
             else:
                 print("Error finding link pattern match!?\n")
                 return None
