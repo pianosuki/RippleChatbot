@@ -108,10 +108,10 @@ class ChatHandler:
         return None # Nothing here yet...
 
     def print_help(self, ctx, *args):
-        self.Client.privmsg(f"Available commands: {', '.join([self.command_prefix + command for command in self.commands])}", channel = ctx.channel)
+        self.Client.privmsg(f"Available commands: {', '.join([self.command_prefix + command for command in self.commands])}", channel = self.get_channel(ctx))
 
     def say_hello(self, ctx, *args):
-        self.Client.privmsg(f"Hello there, {ctx.sender}!", channel = ctx.channel)
+        self.Client.privmsg(f"Hello there, {ctx.sender}!", channel = self.get_channel(ctx))
 
     def send_beatconnect_link(self, ctx):
             # Compile regex patterns
@@ -154,6 +154,11 @@ class ChatHandler:
                         ctx.difficulty = difficulty_match.group()
 
                 # Compose beatconnect link using collected variables
-                self.Client.privmsg(f"[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]", channel = ctx.channel)
+                self.Client.privmsg(f"[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]", channel = self.get_channel(ctx))
             else:
                 self.Client.log("Error finding link pattern match!?\n")
+
+    def get_channel(self, ctx):
+        # If it's not a private message, then use the channel the sender sent in
+        # Else if it is a private message, then use the sender as the channel
+        return ctx.channel if not ctx.channel == self.Client.nickname else ctx.sender
