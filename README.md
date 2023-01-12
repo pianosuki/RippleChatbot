@@ -6,6 +6,7 @@ Enriching the user experience on [Ripple](https://ripple.moe/) (an osu! private 
 
 - [x] Automatically send the respective beatconnect link for every /np
 - [ ] Personalized settings for each user
+- [ ] "osu!dailies" and incentive system to reward player engagement
 - [ ] More to come!
 
 ## Prerequisites

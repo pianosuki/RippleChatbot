@@ -1,10 +1,10 @@
 import re
-from context import ContextManager
-from config import command_prefix, nickname
+from .context import ContextManager
 
 class ChatHandler:
-    def __init__(self):
-        self.nickname = nickname
+    def __init__(self, Client, command_prefix):
+        self.Client = Client
+        self.command_prefix = command_prefix
         self.commands = {
             "help": self.print_help,
             "hello": self.say_hello
@@ -62,43 +62,34 @@ class ChatHandler:
         ctx.message = input[re.search(r"(?<=:).*?:", input).end():].rstrip()
 
         # Determine the type of message
-        if ctx.message.startswith(command_prefix):
+        if ctx.message.startswith(self.command_prefix):
             ctx.type = "COMMAND"
         elif ctx.message.startswith("\x01ACTION"):
             ctx.type = "ACTION"
         else:
             ctx.type = "TEXT"
 
-        # Pass collected context to appropriate handler type
+        # Pass collected context to the appropriate type of sub-handler
         match ctx.type:
             case "COMMAND":
-                reply = self.handle_command(ctx)
+                self.handle_command(ctx)
             case "ACTION":
-                reply = self.handle_action(ctx)
+                self.handle_action(ctx)
             case "TEXT":
-                reply = self.handle_text(ctx)
-
-        if reply is not None:
-            # Log reply
-            print(f":{self.nickname}!127.0.0.1 {reply}")
-
-        return reply
+                self.handle_text(ctx)
 
     def handle_command(self, ctx):
         # Parse the command and argument(s) from message
         parts = ctx.message.split()
-        ctx.command = parts[0].lstrip(command_prefix)
+        ctx.command = parts[0].lstrip(self.command_prefix)
         args = parts[1:]
 
         # Look up the function for the command and call it
         function = self.commands.get(ctx.command)
         if function:
-            reply = function(ctx, *args)
+            function(ctx, *args)
         else:
-            print(f"Invalid command: '{ctx.command}'\n")
-            reply = None
-
-        return reply
+            self.Client.log(f"Invalid command: '{ctx.command}'\n")
 
     def handle_action(self, ctx):
         # Parse the action that the user is performing
@@ -107,21 +98,20 @@ class ChatHandler:
 
         if any(list(action_checks.values())): # TO-DO: turn this condition into "if action exists & user has auto-link enabled" (need to implement users database)
             # Turn broken /np link into beatconnect link
-            reply = self.send_beatconnect_link(ctx)
+            self.send_beatconnect_link(ctx)
         else:
-            reply = None
-
-        return reply
+            # Handle /me message
+            pass
 
 
     def handle_text(self, ctx):
         return None # Nothing here yet...
 
     def print_help(self, ctx, *args):
-        return f"PRIVMSG {ctx.channel} :Available commands: {', '.join(['!' + command for command in self.commands])}\n"
+        self.Client.privmsg(f"Available commands: {', '.join([self.command_prefix + command for command in self.commands])}", channel = ctx.channel)
 
     def say_hello(self, ctx, *args):
-        return f"PRIVMSG {ctx.channel} :Hello there, {ctx.sender}!\n"
+        self.Client.privmsg(f"Hello there, {ctx.sender}!", channel = ctx.channel)
 
     def send_beatconnect_link(self, ctx):
             # Compile regex patterns
@@ -164,7 +154,6 @@ class ChatHandler:
                         ctx.difficulty = difficulty_match.group()
 
                 # Compose beatconnect link using collected variables
-                return f"PRIVMSG {ctx.channel} :[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]\n"
+                self.Client.privmsg(f"[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]", channel = ctx.channel)
             else:
-                print("Error finding link pattern match!?\n")
-                return None
+                self.Client.log("Error finding link pattern match!?\n")
