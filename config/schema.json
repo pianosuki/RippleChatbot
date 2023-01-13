@@ -1,0 +1,21 @@
+{
+    "tables":
+        [
+            {
+                "name": "users",
+                "columns":
+                [
+                    {"name": "id", "type": "INTEGER", "primary_key": true, "nullability": false},
+                    {"name": "auto_beatconnect", "type": "INTEGER"}
+                ]
+            }
+        ],
+    "defaults":
+        {
+            "users":
+                {
+                    "id": 0,
+                    "auto_beatconnect": 1
+                }
+        }
+}

@@ -5,7 +5,7 @@ Enriching the user experience on [Ripple](https://ripple.moe/) (an osu! private 
 ## Features
 
 - [x] Automatically send the respective beatconnect link for every /np
-- [ ] Personalized settings for each user
+- [x] Personalized settings for each user (SQLite database)
 - [ ] "osu!dailies" and incentive system to reward player engagement
 - [ ] More to come!
 
@@ -20,14 +20,20 @@ Enriching the user experience on [Ripple](https://ripple.moe/) (an osu! private 
 ## Configuration
 
 1. Grab your Ripple account's IRC token from [here](https://ripple.moe/irc)
-2. Create a file in the root directory called `secret_tokens.py` to store that token
+2. Create a new Ripple API token [here](https://ripple.moe/dev/tokens)
+3. Create a file in the root directory called `secret_tokens.py` to store both those tokens
    - ```
      irc_token = "your_irc_token_here"
+     api_token = "your_api_token_here"
      ```
-2. Edit the file `config.py` as needed
-   - Setting nickname:
+4. Edit the file `config.py` as needed
+   - (Example) adding channels to listen on, setting nickname, and choosing a command_prefix:
    - ```
+     channels = ["#osu", "#other_channel", "yet_another_channel", "etc."]
+     ...
      nickname = "your_ripple_username_here"
+     ...
+     command_prefix = "symbol_to_use_as_prefix_here"
      ```
 
 ## Running

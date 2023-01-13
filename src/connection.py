@@ -1,7 +1,11 @@
 import socket, ssl, time
+from src.logger import Logger
 
-class SocketConnection():
+class SocketConnection:
     def __init__(self, server, port, channels, default_channel, nickname, password):
+        # Define the Logger
+        self.logger = Logger(self.__class__.__name__)
+
         # Store configuration parameters
         self.server = server
         self.port = port
@@ -32,32 +36,29 @@ class SocketConnection():
     def connect(self):
         # Connect to the server
         try:
-            self.log(f"Connecting to {self.server}...")
+            self.logger.log(f"Connecting to {self.server}...")
             self.irc_socket.connect((self.server, self.port))
             time.sleep(1)
 
-            self.log("Authenticating with /PASS method...")
+            self.logger.log("Authenticating with /PASS method...")
             self.auth(self.password)
             time.sleep(1)
 
-            self.log(f"Setting nickname '{self.nickname}'...")
+            self.logger.log(f"Setting nickname '{self.nickname}'...")
             self.nick(self.nickname)
             time.sleep(1)
 
-            self.log(f"Setting user '{self.nickname}'...")
+            self.logger.log(f"Setting user '{self.nickname}'...")
             self.user(self.nickname)
             time.sleep(1)
 
-            self.log(f"Joining channel(s) {self.channels}...")
+            self.logger.log(f"Joining channel(s): {self.channels}...")
             for channel in self.channels:
                 self.join(channel)
                 time.sleep(1)
-
-            self.log("Connected!\n")
+            self.logger.log("Connected!\n")
         except Exception as error:
-            self.log("Something went wrong!")
-            self.log(error)
-            return
+            self.logger.log(f"Something went wrong! Printing error...\n{error}")
 
     def disconnect(self):
         pass # TO-DO: handle graceful disconnecting and reconnecting attempts
@@ -72,10 +73,6 @@ class SocketConnection():
 
         return message
 
-    def log(self, message):
-        # Log message to console
-        print(message)
-
     def privmsg(self, *args, **kwargs):
         # Deal with any potential keyword arguments passed in
         channel = kwargs["channel"] if "channel" in kwargs else self.default_channel
@@ -85,33 +82,29 @@ class SocketConnection():
             message = self.composeMessage("PRIVMSG").format(channel, msg)
 
             # Log the outgoing message to console
-            self.log(f":{self.nickname}!127.0.0.1 {message}")
+            self.logger.log(f":{self.nickname}!127.0.0.1 {message}")
 
+            # Send the message to server
             self.send(message)
 
     def auth(self, password):
         message = self.composeMessage("PASS").format(password)
-
         self.send(message)
 
     def nick(self, nickname):
         message = self.composeMessage("NICK").format(nickname)
-
         self.send(message)
 
     def user(self, nickname):
         message = self.composeMessage("USER").format(nickname)
-
         self.send(message)
 
     def join(self, channel):
         message = self.composeMessage("JOIN").format(channel)
-
         self.send(message)
 
     def part(self, channel):
         message = self.composeMessage("PART").format(channel)
-
         self.send(message)
 
     def notice(self, *args, **kwargs):
@@ -123,23 +116,21 @@ class SocketConnection():
             message = self.composeMessage("NOTICE").format(channel, msg)
 
             # Log the outgoing message to console
-            self.log(f":{self.nickname}!127.0.0.1 {message}")
+            self.logger.log(f":{self.nickname}!127.0.0.1 {message}")
 
+            # Send the message to server
             self.send(message)
 
     def quit(self):
         message = self.composeMessage("QUIT")
-
         self.send(message)
 
     def ping(self):
         message = self.composeMessage("PING")
-
         self.send(message)
 
     def pong(self):
         message = self.composeMessage("PONG")
-
         self.send(message)
 
     def composeMessage(self, command):

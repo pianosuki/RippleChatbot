@@ -1,20 +1,55 @@
 import re
-from .context import ContextManager
+from src.context import ContextManager
+from src.logger import Logger
 
-class ChatHandler:
-    def __init__(self, Client, command_prefix):
+class ChatHandler():
+    def __init__(self, Client, DB, Ripple, Delta, command_prefix):
+        # Define the Logger
+        self.logger = Logger(self.__class__.__name__)
+
+        # IRC connection client
         self.Client = Client
+
+        # Database manager
+        self.DB = DB
+
+        # User preferences that are stored in database and their accepted values
+        self.preferences = {
+            "auto_beatconnect": ["on", "off"]
+        }
+
+        # Ripple API client (v1)
+        self.Ripple = Ripple
+
+        # Ripple Delta API client (v2)
+        self.Delta = Delta
+
+        # Command prefix to listen for
         self.command_prefix = command_prefix
+
+        # Commands to listen for
         self.commands = {
             "help": self.print_help,
-            "hello": self.say_hello
+            "hello": self.say_hello,
+            "preferences": self.set_preferences
         }
+
+        # Information to print upon incomplete yet valid commands
+        self.docs = {
+            "help": f"Available commands: {', '.join([self.command_prefix + command for command in self.commands])}",
+            "hello": "Friendly greetings between a user and their obedient bot~",
+            "preferences": f"Usage: {self.command_prefix}preferences <preference_name> <value> (To list all preferences: {self.command_prefix}preferences list)"
+        }
+
+        # Action phrases to listen for (/np)
         self.action_phrases = [
             "is listening to",
             "is playing",
             "is editing",
             "is watching"
         ]
+
+        # Dictionary for translating between mods as they appear in osu!stable chat and their official abbreviations
         self.mod_names = {
             "-Easy": "EZ",
             "-NoFail": "NF",
@@ -69,6 +104,9 @@ class ChatHandler:
         else:
             ctx.type = "TEXT"
 
+        # Register user in database
+        self.DB.add_user(self.Ripple.get_user_id(ctx.sender))
+
         # Pass collected context to the appropriate type of sub-handler
         match ctx.type:
             case "COMMAND":
@@ -89,29 +127,82 @@ class ChatHandler:
         if function:
             function(ctx, *args)
         else:
-            self.Client.log(f"Invalid command: '{ctx.command}'\n")
+            self.logger.log(f"Invalid command: '{ctx.command}'")
 
     def handle_action(self, ctx):
         # Parse the action that the user is performing
         action_checks = {phrase: phrase in ctx.message for phrase in self.action_phrases}
         ctx.action = next((key for key in action_checks.keys() if action_checks[key]), "")
 
-        if any(list(action_checks.values())): # TO-DO: turn this condition into "if action exists & user has auto-link enabled" (need to implement users database)
-            # Turn broken /np link into beatconnect link
-            self.send_beatconnect_link(ctx)
+        # Check if the action is a valid /np action
+        if any(list(action_checks.values())):
+            # Check if the user's preferences are set to have automatic beatconnect links enabled
+            if bool(self.DB.get_user_column(self.Ripple.get_user_id(ctx.sender), "auto_beatconnect")):
+                # Turn broken /np link into beatconnect link
+                self.send_beatconnect_link(ctx)
         else:
             # Handle /me message
             pass
 
-
     def handle_text(self, ctx):
-        return None # Nothing here yet...
+        pass # Nothing here yet...
 
     def print_help(self, ctx, *args):
-        self.Client.privmsg(f"Available commands: {', '.join([self.command_prefix + command for command in self.commands])}", channel = self.get_channel(ctx))
+        # Check if user provided any arguments
+        if args:
+            command = args[0]
+            # Check if the provided argument is another valid command
+            if command in self.commands:
+                # Use the provided command's doc message
+                message = self.docs[command]
+        else:
+            # Use the this command's docs message
+            message = self.docs["help"]
+
+        # Send the message
+        self.Client.privmsg(message, channel = self.get_channel(ctx))
 
     def say_hello(self, ctx, *args):
-        self.Client.privmsg(f"Hello there, {ctx.sender}!", channel = self.get_channel(ctx))
+        # Ping, pong!
+        message = f"Hello there, {ctx.sender}!"
+
+        # Send the message
+        self.Client.privmsg(message, channel = self.get_channel(ctx))
+
+    def set_preferences(self, ctx, *args):
+        # Check if user provided any arguments
+        if args:
+            match args[0]:
+                case "list": # List preferences
+                    message = f"List of preferences: {', '.join([preference for preference in self.preferences.keys()])}"
+                case preference if preference in self.preferences: # User provided a valid preference
+                    # Check if user provided a second argument and if that argument is valid for the provided preference
+                    if len(args) > 1 and args[1] in self.preferences[preference]:
+                        # Decide what message to send based on which preference and value was specified
+                        # Also translate the value into what we wnat to actually store in the database
+                        match preference:
+                            case "auto_beatconnect":
+                                match args[1]:
+                                    case "on":
+                                        value = 1
+                                        message = "Ok, I will now automatically provide Beatconnect links for each /np you send."
+                                    case "off":
+                                        value = 0
+                                        message = "Ok, I will no longer automatically provice Beatconnect links to you."
+
+                        # Update the user's preference in the database
+                        self.DB.update_user(self.Ripple.get_user_id(ctx.sender), preference, value)
+                    else:
+                        # Inform user of valid values
+                        message = f"Accepted values for {preference}: {', '.join([chr(39) + value + chr(39) for value in self.preferences[preference]])}"
+                case invalid: # User provided an invalid preference
+                    message = f"Unknown preference: '{invalid}'"
+        else:
+            # Use the this command's docs message
+            message = self.docs["preferences"]
+
+        # Send the message
+        self.Client.privmsg(message, channel = self.get_channel(ctx))
 
     def send_beatconnect_link(self, ctx):
             # Compile regex patterns
@@ -153,10 +244,10 @@ class ChatHandler:
                         difficulty_match = difficulty_pattern.search(ctx.message[song_match.end():])
                         ctx.difficulty = difficulty_match.group()
 
-                # Compose beatconnect link using collected variables
+                # Compose beatconnect link using collected variables and send it
                 self.Client.privmsg(f"[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]", channel = self.get_channel(ctx))
             else:
-                self.Client.log("Error finding link pattern match!?\n")
+                self.logger.log(f"Error finding link pattern match!?")
 
     def get_channel(self, ctx):
         # If it's not a private message, then use the channel the sender sent in
