@@ -190,7 +190,7 @@ class ChatHandler():
                                         message = "Ok, I will now automatically provide Beatconnect links for each /np you send."
                                     case "off":
                                         value = 0
-                                        message = "Ok, I will no longer automatically provice Beatconnect links to you."
+                                        message = "Ok, I will no longer automatically provide Beatconnect links to you."
 
                         # Update the user's preference in the database
                         self.DB.update_user(self.Ripple.get_user_id(ctx.sender), preference, value)
