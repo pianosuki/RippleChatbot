@@ -42,15 +42,18 @@ def main():
             if data:
                 # Filter the received data
                 irc_msg_cmd = data.split()[1]
-                if irc_msg_cmd == "PONG": Client.conn_confirmed.set() # Confirm connection is alive
-                elif data.startswith(f":{server} "): logger.log(data) # Don't process server welcome messages
-                elif irc_msg_cmd == "PART": continue # Ignore spammy PART messages
-                elif irc_msg_cmd == "PING": Client.pong() # Prevent timeout
-                elif irc_msg_cmd == "PRIVMSG":
-                    # Send data to handler to do its magic
-                    logger.log(data)
-                    Bot.handle_input(data)
-                else: logger.log(data) # Log miscellaneous messages
+                match irc_msg_cmd:
+                    case "PART": # Ignore spammy PART messages
+                        continue
+                    case "PING": # Prevent timeout
+                        Client.pong()
+                    case "PONG":  # Confirm connection is alive
+                        Client.conn_confirmed.set()
+                    case "PRIVMSG": # Send data to handler to do its magic
+                        logger.log(data)
+                        Bot.handle_input(data)
+                    case _: # Log miscellaneous messages
+                        logger.log(data)
         time.sleep(0.1)
 
 if __name__ == "__main__":

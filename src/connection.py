@@ -66,6 +66,7 @@ class SocketConnection:
 
     def disconnect(self):
         self.irc_socket.close()
+        self.logger.log("Disconnected!\n")
 
     def check_connected(self):
         try:
