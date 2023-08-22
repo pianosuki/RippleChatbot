@@ -1,4 +1,4 @@
-import socket, ssl, time
+import socket, ssl, time, threading
 from src.logger import Logger
 
 class SocketConnection:
@@ -15,9 +15,13 @@ class SocketConnection:
         self.password = password
 
         # Set up the socket
-        self.irc_socket = self.createSocket(self.server)
+        self.irc_socket = self.create_socket(self.server)
+        self.irc_socket.settimeout(5)
 
-    def createSocket(self, server_hostname):
+        self.lock = threading.Lock()
+        self.conn_confirmed = threading.Event()
+
+    def create_socket(self, server_hostname):
         # Create a socket
         irc_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -61,7 +65,19 @@ class SocketConnection:
             self.logger.log(f"Something went wrong! Printing error...\n{error}")
 
     def disconnect(self):
-        pass # TO-DO: handle graceful disconnecting and reconnecting attempts
+        self.irc_socket.close()
+
+    def check_connected(self):
+        try:
+            with self.lock:
+                self.send("PING irc.ripple.moe\n")
+            if self.conn_confirmed.wait(timeout=2):
+                self.conn_confirmed.clear()
+                return True
+            else:
+                raise TimeoutError
+        except (BrokenPipeError, ConnectionError, TimeoutError):
+            return False
 
     def send(self, message):
         # Encode with UTF-8 and send IRC message to server
@@ -69,9 +85,11 @@ class SocketConnection:
 
     def recv(self):
         # Receive and decode a message from the server
-        message = self.irc_socket.recv(1024).decode()
-
-        return message
+        try:
+            message = self.irc_socket.recv(1024).decode()
+            return message
+        except socket.timeout:
+            return None
 
     def privmsg(self, *args, **kwargs):
         # Deal with any potential keyword arguments passed in
@@ -79,7 +97,7 @@ class SocketConnection:
 
         # Send each argument passed in as a separate message
         for msg in args:
-            message = self.composeMessage("PRIVMSG").format(channel, msg)
+            message = self.compose_message("PRIVMSG").format(channel, msg)
 
             # Log the outgoing message to console
             self.logger.log(f":{self.nickname}!127.0.0.1 {message}")
@@ -88,23 +106,23 @@ class SocketConnection:
             self.send(message)
 
     def auth(self, password):
-        message = self.composeMessage("PASS").format(password)
+        message = self.compose_message("PASS").format(password)
         self.send(message)
 
     def nick(self, nickname):
-        message = self.composeMessage("NICK").format(nickname)
+        message = self.compose_message("NICK").format(nickname)
         self.send(message)
 
     def user(self, nickname):
-        message = self.composeMessage("USER").format(nickname)
+        message = self.compose_message("USER").format(nickname)
         self.send(message)
 
     def join(self, channel):
-        message = self.composeMessage("JOIN").format(channel)
+        message = self.compose_message("JOIN").format(channel)
         self.send(message)
 
     def part(self, channel):
-        message = self.composeMessage("PART").format(channel)
+        message = self.compose_message("PART").format(channel)
         self.send(message)
 
     def notice(self, *args, **kwargs):
@@ -113,7 +131,7 @@ class SocketConnection:
 
         # Send each argument passed in as a separate message
         for msg in args:
-            message = self.composeMessage("NOTICE").format(channel, msg)
+            message = self.compose_message("NOTICE").format(channel, msg)
 
             # Log the outgoing message to console
             self.logger.log(f":{self.nickname}!127.0.0.1 {message}")
@@ -122,18 +140,18 @@ class SocketConnection:
             self.send(message)
 
     def quit(self):
-        message = self.composeMessage("QUIT")
+        message = self.compose_message("QUIT")
         self.send(message)
 
     def ping(self):
-        message = self.composeMessage("PING")
+        message = self.compose_message("PING")
         self.send(message)
 
     def pong(self):
-        message = self.composeMessage("PONG")
+        message = self.compose_message("PONG")
         self.send(message)
 
-    def composeMessage(self, command):
+    def compose_message(self, command):
         # Compose the message to be compatable for IRC based on the command we want
         match command:
             case "PRIVMSG":
@@ -160,3 +178,13 @@ class SocketConnection:
                 message = f"ERROR\n"
 
         return message
+
+def connection_checker(client: SocketConnection):
+    while True:
+        if not client.check_connected():
+            with client.lock:
+                client.disconnect()
+                client.irc_socket = client.create_socket(client.server)
+                client.irc_socket.settimeout(5)
+                client.connect()
+        time.sleep(10)
