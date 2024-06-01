@@ -147,7 +147,7 @@ class ChatHandler():
             pass
 
     def handle_text(self, ctx):
-        pass # Nothing here yet...
+        self.parse_for_bancho(ctx)
 
     def print_help(self, ctx, *args):
         # Check if user provided any arguments
@@ -157,6 +157,8 @@ class ChatHandler():
             if command in self.commands:
                 # Use the provided command's doc message
                 message = self.docs[command]
+            else:
+                message = self.docs["help"]
         else:
             # Use the this command's docs message
             message = self.docs["help"]
@@ -262,3 +264,7 @@ class ChatHandler():
         # If it's not a private message, then use the channel the sender sent in
         # Else if it is a private message, then use the sender as the channel
         return ctx.channel if not ctx.channel == self.Client.nickname else ctx.sender
+
+    def parse_for_bancho(self, ctx):
+        if "bancho" in ctx.message:
+            self.Client.privmsg(f"bancho is dead :*", channel=self.get_channel(ctx))

@@ -1,6 +1,6 @@
 import threading, time
 from src.logger import Logger
-from src.connection import SocketConnection, connection_checker
+from src.connection import SocketConnection, heartbeat
 from src.database import DatabaseManager
 from src.ripple import RippleAPIClient
 from src.delta import DeltaAPIClient
@@ -29,12 +29,11 @@ def main():
     # Set up the handler for processing input from chat
     Bot = ChatHandler(Client, DB, Ripple, Delta, command_prefix)
 
-    # Start connection checker thread
-    checker = threading.Thread(target=connection_checker, args=(Client,))
-    checker.start()
+    heartbeat_thread = threading.Thread(target=heartbeat, daemon=True, args=(Client,))
+    heartbeat_thread.start()
 
     # Begin process loop
-    while True:
+    while not Client.closed.is_set():
         with Client.lock:
             # Receive any new message from the server
             data = Client.recv()

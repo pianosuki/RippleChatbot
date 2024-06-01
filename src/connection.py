@@ -1,4 +1,4 @@
-import socket, ssl, time, threading
+import socket, ssl, time, threading, sys
 from src.logger import Logger
 
 class SocketConnection:
@@ -20,6 +20,7 @@ class SocketConnection:
 
         self.lock = threading.Lock()
         self.conn_confirmed = threading.Event()
+        self.closed = threading.Event()
 
     def create_socket(self, server_hostname):
         # Create a socket
@@ -34,6 +35,7 @@ class SocketConnection:
 
         # Wrap the socket in an SSL/TLS context using the SSLContext object
         irc_socket = context.wrap_socket(irc_socket, server_hostname = server_hostname)
+        irc_socket.settimeout(1)
 
         return irc_socket
 
@@ -172,7 +174,7 @@ class SocketConnection:
             case "QUIT":
                 message = f"QUIT\n"
             case "PING":
-                message = f"PING\n"
+                message = f"PING irc.ripple.moe\n"
             case "PONG":
                 message = f"PONG\n"
             case _:
@@ -180,12 +182,24 @@ class SocketConnection:
 
         return message
 
-def connection_checker(client: SocketConnection):
+    def cleanup_and_exit(self):
+        try:
+            self.irc_socket.shutdown(socket.SHUT_RDWR)
+            self.irc_socket.close()
+        except Exception:
+            pass
+
+        self.closed.set()
+        sys.exit(1)
+
+
+def heartbeat(Client):
     while True:
-        if not client.check_connected():
-            with client.lock:
-                client.disconnect()
-                client.irc_socket = client.create_socket(client.server)
-                client.irc_socket.settimeout(5)
-                client.connect()
-        time.sleep(10)
+        time.sleep(30)
+        Client.ping()
+
+        if not Client.conn_confirmed.wait(timeout=5):
+            Client.logger.log("Connection lost, terminating process...")
+            Client.cleanup_and_exit()
+
+        Client.conn_confirmed.clear()
