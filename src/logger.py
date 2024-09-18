@@ -1,8 +1,9 @@
+from typing import Any
+
+
 class Logger:
-    def __init__(self, name):
-        # Pass in the class name from the initialization
+    def __init__(self, name: str):
         self.name = name
 
-    def log(self, data):
-        # Format and print data to console
+    def log(self, data: Any):
         print(f"[{self.name}] {str(data).rstrip()}\n")

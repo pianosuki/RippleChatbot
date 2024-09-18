@@ -1,13 +1,11 @@
-from src.api import APIClient
-from src.logger import Logger
+from .api_base import APIClientBase
+from .logger import Logger
 
-class DeltaAPIClient(APIClient):
+
+class DeltaAPIClient(APIClientBase):
     def __init__(self, delta_base_url, api_token):
-        # Define the Logger
         self.logger = Logger(self.__class__.__name__)
 
-        # Set base URL and headers
-        self.base_url = delta_base_url
-        self.headers = {"X-Ripple-Token": api_token}
+        super().__init__(delta_base_url, {"X-Ripple-Token": api_token})
 
     # Nothing here yet...

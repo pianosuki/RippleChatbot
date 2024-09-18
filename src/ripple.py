@@ -1,23 +1,19 @@
-from src.api import APIClient
-from src.logger import Logger
+from .api_base import APIClientBase
+from .logger import Logger
 
-class RippleAPIClient(APIClient):
+
+class RippleAPIClient(APIClientBase):
     def __init__(self, ripple_base_url, api_token):
-        # Define the Logger
         self.logger = Logger(self.__class__.__name__)
 
-        # Set base URL and headers
-        self.base_url = ripple_base_url
-        self.headers = {"X-Ripple-Token": api_token}
+        super().__init__(ripple_base_url, {"X-Ripple-Token": api_token})
 
     def get_users(self, **kwargs):
         endpoint = "/users"
         query_params = []
 
-        # Handle any provided query parameters
         for key, value in kwargs.items():
             match key:
-                # Params
                 case "username":
                     query_params.append("nname={}".format(value))
                 case "user_id":
@@ -34,7 +30,6 @@ class RippleAPIClient(APIClient):
                     query_params.append("name_aka={}".format(value))
                 case "privilege_group":
                     query_params.append("privilege_group={}".format(value))
-                # IN Params
                 case "ids":
                     for item in value:
                         query_params.append("ids={}".format(item))
@@ -47,7 +42,6 @@ class RippleAPIClient(APIClient):
                 case "countries":
                     for item in value:
                         query_params.append("countries={}".format(item))
-                # Sorting
                 case "sort":
                     query_params.append("sort={}".format(value))
 
@@ -56,6 +50,6 @@ class RippleAPIClient(APIClient):
         response = self.get(endpoint, query)
         return response
 
-    def get_user_id(self, username):
-        response = self.get_users(username = username)
+    def get_user_id(self, username: str):
+        response = self.get_users(username=username)
         return response["users"][0]["id"]
