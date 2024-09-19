@@ -1,9 +1,11 @@
+import asyncio
+
 from src.chatbot import ChatBot
 
 
 def main():
     chatbot = ChatBot()
-    chatbot.run()
+    asyncio.run(chatbot.run())
 
 
 if __name__ == "__main__":

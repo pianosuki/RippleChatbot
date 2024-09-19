@@ -1,4 +1,5 @@
 import re
+import asyncio
 
 from .connection import SocketConnection
 from .context import ContextManager
@@ -11,6 +12,9 @@ from .command import Command
 from .action_phrase import ActionPhrase
 from .irc_command import IRCCommand
 from .config import *
+
+HEARTBEAT_RATE = 60
+HEARTBEAT_TIMEOUT = 5
 
 
 mod_names = {
@@ -63,17 +67,20 @@ class ChatBot:
             "discord": "Prints the Ripple Discord server invite link"
         }
 
-    def run(self):
-        self.client.connect()
+    async def run(self):
+        await self.client.connect()
 
+        irc_task = asyncio.create_task(self.handle_irc(), name="IRC Task")
+        heartbeat_task = asyncio.create_task(self.handle_heartbeat(), name="Heartbeat Task")
+
+        await asyncio.gather(irc_task, heartbeat_task)
+
+    async def handle_irc(self):
         while True:
-            message = self.client.recv()
+            message = await self.client.recv()
 
             if not message:
-                if not self.client.is_socket_alive():
-                    raise RuntimeError("Connection lost")
-
-                continue
+                raise RuntimeError("Connection closed by the server")
 
             try:
                 irc_command = IRCCommand[message.split()[1]]
@@ -86,17 +93,24 @@ class ChatBot:
                     continue
 
             match irc_command:
-                case IRCCommand.PART | IRCCommand.PONG:
+                case IRCCommand.PART:
                     continue
                 case IRCCommand.PING:
-                    self.client.pong()
+                    await self.client.pong()
+                case IRCCommand.PONG:
+                    self.client.alive.set()
                 case IRCCommand.PRIVMSG:
                     self.logger.log(message)
-                    self.handle_message(message)
+                    await self.handle_message(message)
                 case _:
                     self.logger.log(message)
 
-    def handle_message(self, message: str):
+    async def handle_heartbeat(self):
+        while True:
+            await self.client.heartbeat(HEARTBEAT_TIMEOUT)
+            await asyncio.sleep(HEARTBEAT_RATE)
+
+    async def handle_message(self, message: str):
         ctx = ContextManager()
         ctx.sender = message[re.search(r":", message).end():re.search(r"!", message).start()]
         ctx.channel = message[re.search(r"PRIVMSG ", message).end():re.search(r" :", message).start()]
@@ -113,13 +127,13 @@ class ChatBot:
 
         match ctx.type:
             case "COMMAND":
-                self.handle_command(ctx)
+                await self.handle_command(ctx)
             case "ACTION":
-                self.handle_action(ctx)
+                await self.handle_action(ctx)
             case "TEXT":
-                self.handle_text(ctx)
+                await self.handle_text(ctx)
 
-    def handle_command(self, ctx: ContextManager):
+    async def handle_command(self, ctx: ContextManager):
         parts = ctx.message.split()
         command_name = parts[0].lstrip(self.command_prefix).lower()
         args = parts[1:]
@@ -131,10 +145,10 @@ class ChatBot:
             self.logger.log(f"Invalid command: '{command_name}'")
             return
 
-        func = getattr(self, command_name)
-        func(ctx, *args)
+        coro = getattr(self, command_name)
+        await coro(ctx, *args)
 
-    def handle_action(self, ctx: ContextManager):
+    async def handle_action(self, ctx: ContextManager):
         action_checks = {action_phrase: action_phrase.value in ctx.message for action_phrase in ActionPhrase}
 
         try:
@@ -146,12 +160,12 @@ class ChatBot:
 
         if any(list(action_checks.values())):
             if bool(self.db.get_user_column(self.ripple.get_user_id(ctx.sender), "auto_beatconnect")):
-                self.send_beatconnect_link(ctx)
+                await self.send_beatconnect_link(ctx)
 
-    def handle_text(self, ctx: ContextManager):
-        self.parse_for_bancho(ctx)
+    async def handle_text(self, ctx: ContextManager):
+        await self.parse_for_bancho(ctx)
 
-    def help(self, ctx: ContextManager, *args):
+    async def help(self, ctx: ContextManager, *args):
         message = self.docs["help"]
 
         if args:
@@ -160,14 +174,14 @@ class ChatBot:
             if command.upper() in Command.__members__:
                 message = self.docs[command]
 
-        self.client.privmsg(message, channel=self.get_channel(ctx))
+        await self.client.privmsg(message, channel=self.get_channel(ctx))
 
-    def hello(self, ctx: ContextManager):
+    async def hello(self, ctx: ContextManager):
         message = f"Hello there, {ctx.sender}!"
 
-        self.client.privmsg(message, channel=self.get_channel(ctx))
+        await self.client.privmsg(message, channel=self.get_channel(ctx))
 
-    def preferences(self, ctx: ContextManager, *args):
+    async def preferences(self, ctx: ContextManager, *args):
         if args:
             match args[0]:
                 case "list":
@@ -197,14 +211,14 @@ class ChatBot:
         else:
             message = self.docs["preferences"]
 
-        self.client.privmsg(message, channel=self.get_channel(ctx))
+        await self.client.privmsg(message, channel=self.get_channel(ctx))
         
-    def discord(self, ctx: ContextManager):
+    async def discord(self, ctx: ContextManager):
         message = f"Ripple Discord invite link: https://discord.gg/893AKDKDwz"
 
-        self.client.privmsg(message, channel=self.get_channel(ctx))
+        await self.client.privmsg(message, channel=self.get_channel(ctx))
 
-    def send_beatconnect_link(self, ctx: ContextManager):
+    async def send_beatconnect_link(self, ctx: ContextManager):
         link_pattern = re.compile(r"https://osu.(ripple.moe|ppy.sh)/beatmapsets/[0-9]+#/[0-9]+")
         beatmapset_id_pattern = re.compile(r"(?<=/)\d+(?=#)")
         beatmap_id_pattern = re.compile(r"(?<=#/)\d+(?=$)")
@@ -240,13 +254,13 @@ class ChatBot:
                     ctx.song = song_match.group()
                     ctx.difficulty = difficulty_match.group()
 
-            self.client.privmsg(f"[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]", channel=self.get_channel(ctx))
+            await self.client.privmsg(f"[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]", channel=self.get_channel(ctx))
         else:
             self.logger.log(f"Error finding link pattern match!?")
 
     def get_channel(self, ctx: ContextManager):
         return ctx.channel if not ctx.channel == self.client.nickname else ctx.sender
 
-    def parse_for_bancho(self, ctx: ContextManager):
+    async def parse_for_bancho(self, ctx: ContextManager):
         if "bancho" in ctx.message:
-            self.client.privmsg(f"bancho is dead :*", channel=self.get_channel(ctx))
+            await self.client.privmsg(f"bancho is dead :*", channel=self.get_channel(ctx))
