@@ -36,6 +36,7 @@ class ChatBot:
         self.docs = {
             "help": f"Available commands: {", ".join([self.command_prefix + command.lower() for command in Command.__members__.keys()])}",
             "hello": "Friendly greetings between a user and their obedient bot~",
+            "bye": "Friendly farewells between a user and their obedient bot~",
             "preferences": f"Usage: {self.command_prefix}preferences <preference_name> <value> (To list all preferences: {self.command_prefix}preferences list)",
             "discord": "Prints the Ripple Discord server invite link",
             "last": "Shows your last score"
@@ -158,6 +159,11 @@ class ChatBot:
 
     async def hello(self, ctx: ContextManager):
         message = f"Hello there, {ctx.sender}!"
+
+        await self.irc.privmsg(message, channel=self.get_channel(ctx))
+
+    async def bye(self, ctx: ContextManager):
+        message = f"Bye there, {ctx.sender}!"
 
         await self.irc.privmsg(message, channel=self.get_channel(ctx))
 
