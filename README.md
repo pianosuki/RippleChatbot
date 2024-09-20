@@ -6,7 +6,7 @@ Enriching the user experience on [Ripple](https://ripple.moe/) (an osu! private 
 
 - [x] Automatically send the respective beatconnect link for every /np
 - [x] Personalized settings for each user (SQLite database)
-- [ ] !last command to show the user's last submitted score
+- [x] !last command to show the user's last submitted score
 - [ ] Tillerino-like functionality
 - [ ] "osu!dailies" and incentive system to reward player engagement
 - [ ] More to come!

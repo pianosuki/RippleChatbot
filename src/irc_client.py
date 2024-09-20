@@ -4,8 +4,10 @@ import asyncio
 from .logger import Logger
 from .irc_command import IRCCommand
 
+JOIN_TIMEOUT = 5
 
-class SocketConnection:
+
+class IRCClient:
     def __init__(self, host: str, port: int, channels: list[str], default_channel: str, nickname: str, password: str):
         self.logger = Logger(self.__class__.__name__)
 
@@ -16,6 +18,8 @@ class SocketConnection:
         self.nickname = nickname
         self.password = password
 
+        self.connected = asyncio.Event()
+        self.joined = asyncio.Event()
         self.alive = asyncio.Event()
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
@@ -44,12 +48,8 @@ class SocketConnection:
         await self.user(self.nickname)
         await asyncio.sleep(1)
 
-        self.logger.log(f"Joining channel(s): {self.channels}...")
-        for channel in self.channels:
-            await self.join(channel)
-            await asyncio.sleep(1)
-
         self.logger.log("Connected!\n")
+        self.connected.set()
 
     async def disconnect(self):
         self.writer.close()
@@ -71,8 +71,19 @@ class SocketConnection:
             await self.ping()
             await asyncio.wait_for(self.alive.wait(), timeout)
 
-        except (ConnectionError, OSError, asyncio.TimeoutError):
+        except (ConnectionError, OSError, TimeoutError):
             raise RuntimeError(f"Connection lost!")
+
+    async def join_channels(self):
+        await self.connected.wait()
+        await asyncio.sleep(1)
+
+        self.logger.log(f"Joining channel(s): {self.channels}...")
+
+        for channel in self.channels:
+            self.joined.clear()
+            await self.join(channel)
+            await asyncio.wait_for(self.joined.wait(), JOIN_TIMEOUT)
 
     async def privmsg(self, *args, **kwargs):
         channel = kwargs["channel"] if "channel" in kwargs else self.default_channel

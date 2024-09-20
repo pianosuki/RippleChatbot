@@ -7,7 +7,7 @@ class APIClientBase:
         self.base_url = base_url
         self.headers = headers
 
-    def get(self, endpoint: str, query: str = ""):
+    def get(self, endpoint: str, query: str = "") -> Any:
         url = self.base_url + endpoint + query
 
         response = requests.get(url, headers=self.headers)

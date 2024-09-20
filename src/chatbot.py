@@ -1,83 +1,60 @@
 import re
 import asyncio
 
-from .connection import SocketConnection
+from .irc_client import IRCClient
 from .context import ContextManager
 from .database import DatabaseManager
 from .ripple import RippleAPIClient
 from .delta import DeltaAPIClient
+from .peppy import PeppyAPIClient
 from .logger import Logger
 from .preference import Preference
 from .command import Command
 from .action_phrase import ActionPhrase
 from .irc_command import IRCCommand
+from .websocket import RippleWebsocketClient
+from .play_mode import PlayMode
+from .mods import MOD_NAMES, ModBitwise
 from .config import *
 
 HEARTBEAT_RATE = 60
 HEARTBEAT_TIMEOUT = 5
-
-
-mod_names = {
-    "-Easy": "EZ",
-    "-NoFail": "NF",
-    "-HalfTime": "HT",
-    "-SpunOut": "SO",
-    "+Hidden": "HD",
-    "+SuddenDeath": "SD",
-    "+Perfect": "PF",
-    "+HardRock": "HR",
-    "+DoubleTime": "DT",
-    "+Nightcore": "NC",
-    "+Flashlight": "FL",
-    "~Relax~": "RX",
-    "~Autopilot~": "AP",
-    "|Autoplay|": "AT",
-    "|Cinema|": "CM",
-    "|1K|": "1K",
-    "|2K|": "2K",
-    "|3K|": "3K",
-    "|4K|": "4K",
-    "|5K|": "5K",
-    "|6K|": "6K",
-    "|7K|": "7K",
-    "|8K|": "8K",
-    "|9K|": "9K",
-    "|10K|": "10K",
-    "|12K|": "12K",
-    "|14K|": "14K",
-    "|16K|": "16K",
-    "|18K|": "18K",
-    "|20K|": "20K"
-}
+LAST_SCORE_TIMEOUT = 1
 
 
 class ChatBot:
     def __init__(self):
         self.logger = Logger(self.__class__.__name__)
-        self.client = SocketConnection(host, port, channels, default_channel, nickname, password)
+        self.irc = IRCClient(host, port, channels, default_channel, nickname, password)
         self.db = DatabaseManager(db_path)
         self.ripple = RippleAPIClient(ripple_base_url, ripple_token)
         self.delta = DeltaAPIClient(delta_base_url, delta_token)
+        self.peppy = PeppyAPIClient(peppy_base_url)
+        self.ws = RippleWebsocketClient(websocket_host, ripple_token)
         self.command_prefix = command_prefix
 
         self.docs = {
             "help": f"Available commands: {", ".join([self.command_prefix + command.lower() for command in Command.__members__.keys()])}",
             "hello": "Friendly greetings between a user and their obedient bot~",
             "preferences": f"Usage: {self.command_prefix}preferences <preference_name> <value> (To list all preferences: {self.command_prefix}preferences list)",
-            "discord": "Prints the Ripple Discord server invite link"
+            "discord": "Prints the Ripple Discord server invite link",
+            "last": "Shows your last score"
         }
 
     async def run(self):
-        await self.client.connect()
+        await self.irc.connect()
+        await self.ws.connect()
 
         irc_task = asyncio.create_task(self.handle_irc(), name="IRC Task")
         heartbeat_task = asyncio.create_task(self.handle_heartbeat(), name="Heartbeat Task")
+        websocket_task = asyncio.create_task(self.ws.run(), name="Websocket Task")
+        join_task = asyncio.create_task(self.irc.join_channels(), name="Join Channels Task")
 
-        await asyncio.gather(irc_task, heartbeat_task)
+        await asyncio.gather(irc_task, heartbeat_task, websocket_task, join_task)
 
     async def handle_irc(self):
         while True:
-            message = await self.client.recv()
+            message = await self.irc.recv()
 
             if not message:
                 raise RuntimeError("Connection closed by the server")
@@ -93,12 +70,15 @@ class ChatBot:
                     continue
 
             match irc_command:
+                case IRCCommand.JOIN:
+                    if self.irc.nickname in message:
+                        self.irc.joined.set()
                 case IRCCommand.PART:
                     continue
                 case IRCCommand.PING:
-                    await self.client.pong()
+                    await self.irc.pong()
                 case IRCCommand.PONG:
-                    self.client.alive.set()
+                    self.irc.alive.set()
                 case IRCCommand.PRIVMSG:
                     self.logger.log(message)
                     await self.handle_message(message)
@@ -107,7 +87,7 @@ class ChatBot:
 
     async def handle_heartbeat(self):
         while True:
-            await self.client.heartbeat(HEARTBEAT_TIMEOUT)
+            await self.irc.heartbeat(HEARTBEAT_TIMEOUT)
             await asyncio.sleep(HEARTBEAT_RATE)
 
     async def handle_message(self, message: str):
@@ -174,12 +154,12 @@ class ChatBot:
             if command.upper() in Command.__members__:
                 message = self.docs[command]
 
-        await self.client.privmsg(message, channel=self.get_channel(ctx))
+        await self.irc.privmsg(message, channel=self.get_channel(ctx))
 
     async def hello(self, ctx: ContextManager):
         message = f"Hello there, {ctx.sender}!"
 
-        await self.client.privmsg(message, channel=self.get_channel(ctx))
+        await self.irc.privmsg(message, channel=self.get_channel(ctx))
 
     async def preferences(self, ctx: ContextManager, *args):
         if args:
@@ -211,12 +191,12 @@ class ChatBot:
         else:
             message = self.docs["preferences"]
 
-        await self.client.privmsg(message, channel=self.get_channel(ctx))
+        await self.irc.privmsg(message, channel=self.get_channel(ctx))
         
     async def discord(self, ctx: ContextManager):
-        message = f"Ripple Discord invite link: https://discord.gg/893AKDKDwz"
+        message = f"Ripple Discord invite link: {discord_link}"
 
-        await self.client.privmsg(message, channel=self.get_channel(ctx))
+        await self.irc.privmsg(message, channel=self.get_channel(ctx))
 
     async def send_beatconnect_link(self, ctx: ContextManager):
         link_pattern = re.compile(r"https://osu.(ripple.moe|ppy.sh)/beatmapsets/[0-9]+#/[0-9]+")
@@ -225,7 +205,7 @@ class ChatBot:
         song_standalone_pattern = re.compile(r".+\s-\s.+(?=])")
         song_with_difficulty_pattern = re.compile(r".+\s-\s.+(?=\s\[(.*)]])")
         difficulty_pattern = re.compile(r"(?<=\[)(.*)(?=]])")
-        mods_pattern = re.compile("|".join([re.escape(mod) for mod in mod_names.keys()]))
+        mods_pattern = re.compile("|".join([re.escape(mod) for mod in MOD_NAMES.keys()]))
 
         link_match = link_pattern.search(ctx.message)
 
@@ -246,7 +226,7 @@ class ChatBot:
                     ctx.difficulty = difficulty_match.group()
 
                     if mods_match:
-                        ctx.mods = [mod_names[mod] for mod in mods_match]
+                        ctx.mods = [MOD_NAMES[mod] for mod in mods_match]
                 case ActionPhrase.EDITING:
                     song_match = song_with_difficulty_pattern.search(ctx.message[link_match.end() + 1:])
                     difficulty_match = difficulty_pattern.search(ctx.message[link_match.end() + song_match.end() + 1:])
@@ -254,13 +234,42 @@ class ChatBot:
                     ctx.song = song_match.group()
                     ctx.difficulty = difficulty_match.group()
 
-            await self.client.privmsg(f"[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]", channel=self.get_channel(ctx))
+            await self.irc.privmsg(f"[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]", channel=self.get_channel(ctx))
         else:
             self.logger.log(f"Error finding link pattern match!?")
 
     def get_channel(self, ctx: ContextManager):
-        return ctx.channel if not ctx.channel == self.client.nickname else ctx.sender
+        return ctx.channel if not ctx.channel == self.irc.nickname else ctx.sender
 
     async def parse_for_bancho(self, ctx: ContextManager):
         if "bancho" in ctx.message:
-            await self.client.privmsg(f"bancho is dead :*", channel=self.get_channel(ctx))
+            await self.irc.privmsg(f"bancho is dead :*", channel=self.get_channel(ctx))
+
+    async def last(self, ctx: ContextManager):
+        score = self.ws.last_scores.get(ctx.sender)
+
+        if not score:
+            return
+
+        try:
+            beatmaps = self.peppy.get_beatmaps(h=score.beatmap_md5)
+            beatmap = beatmaps[0]
+        except KeyError:
+            return
+
+        link = f"https://osu.ripple.moe/beatmapsets/{beatmap["beatmapset_id"]}#/{beatmap["beatmap_id"]}"
+        mods = ModBitwise.bitwise_to_list(score.mods)
+
+        message = (
+            f"{score.username} | "
+            f"[{link} {beatmap["artist"]} - {beatmap["title"]} [{beatmap["version"]}]] "
+            f"<{PlayMode(score.play_mode).get_name()}> "
+            f"{"+" + "".join(mods) + " " if mods else ""}"
+            f"({round(score.accuracy, 2)}% {score.rank}) "
+            f"{"[" + ("Fail" if score.completed == 1 else "Quit") + "] | " if score.completed < 2 else "| "}"
+            f"{score.max_combo}x/{beatmap["max_combo"]}x | "
+            f"{str(round(score.pp, 2)) + "pp" if score.pp > 0 else "{:,}".format(score.score)} | "
+            f"{round(float(beatmap["difficultyrating"]), 2)}★"
+        )
+
+        await self.irc.privmsg(message, channel=self.get_channel(ctx))

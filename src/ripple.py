@@ -8,7 +8,7 @@ class RippleAPIClient(APIClientBase):
 
         super().__init__(ripple_base_url, {"X-Ripple-Token": api_token})
 
-    def get_users(self, **kwargs):
+    def get_users(self, **kwargs) -> dict:
         endpoint = "/users"
         query_params = []
 
@@ -50,6 +50,6 @@ class RippleAPIClient(APIClientBase):
         response = self.get(endpoint, query)
         return response
 
-    def get_user_id(self, username: str):
+    def get_user_id(self, username: str) -> int:
         response = self.get_users(username=username)
         return response["users"][0]["id"]

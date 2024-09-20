@@ -6,3 +6,4 @@ class Command(Enum):
     HELLO = auto()
     PREFERENCES = auto()
     DISCORD = auto()
+    LAST = auto()
