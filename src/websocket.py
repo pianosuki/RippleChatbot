@@ -56,7 +56,6 @@ class RippleWebsocketClient:
 
             try:
                 ws_message = WebsocketMessage.deserialize(message)
-
                 await self.handle_message(ws_message)
             except KeyError:
                 continue

@@ -15,6 +15,7 @@ from .irc_command import IRCCommand
 from .websocket import RippleWebsocketClient
 from .play_mode import PlayMode
 from .mods import MOD_NAMES, ModBitwise
+from .exceptions import AbortException
 from .config import *
 
 HEARTBEAT_RATE = 60
@@ -62,7 +63,6 @@ class ChatBot:
 
             try:
                 irc_command = IRCCommand[message.split()[1]]
-
             except KeyError:
                 if bool(re.search(r"^\d{3}$", message.split()[1])):
                     irc_command = None
@@ -121,20 +121,25 @@ class ChatBot:
 
         try:
             ctx.command = Command[command_name.upper()]
-
         except KeyError:
             self.logger.log(f"Invalid command: '{command_name}'")
             return
 
-        coro = getattr(self, command_name)
-        await coro(ctx, *args)
+        try:
+            coro = getattr(self, command_name)
+            await coro(ctx, *args)
+        except AbortException as e:
+            if not e.suppress_response:
+                await self.irc.privmsg(e.message, channel=self.get_channel(e.ctx))
+
+            if e.log_message:
+                self.logger.log(e.message)
 
     async def handle_action(self, ctx: ContextManager):
         action_checks = {action_phrase: action_phrase.value in ctx.message for action_phrase in ActionPhrase}
 
         try:
             ctx.action = next((action_phrase for action_phrase in action_checks.keys() if action_checks[action_phrase]))
-
         except StopIteration:
             self.logger.log("Failed to parse action")
             return
@@ -145,6 +150,9 @@ class ChatBot:
 
     async def handle_text(self, ctx: ContextManager):
         await self.parse_for_bancho(ctx)
+
+    def get_channel(self, ctx: ContextManager):
+        return ctx.channel if not ctx.channel == self.irc.nickname else ctx.sender
 
     async def help(self, ctx: ContextManager, *args):
         message = self.docs["help"]
@@ -159,49 +167,61 @@ class ChatBot:
 
     async def hello(self, ctx: ContextManager):
         message = f"Hello there, {ctx.sender}!"
-
         await self.irc.privmsg(message, channel=self.get_channel(ctx))
 
     async def bye(self, ctx: ContextManager):
         message = f"Bye there, {ctx.sender}!"
-
         await self.irc.privmsg(message, channel=self.get_channel(ctx))
 
     async def preferences(self, ctx: ContextManager, *args):
-        if args:
-            match args[0]:
-                case "list":
-                    message = f"List of preferences: {", ".join([preference.lower() for preference in Preference.__members__.keys()])}"
-                case preference_name if preference_name.upper() in Preference.__members__:
-                    preference = Preference[preference_name.upper()]
-                    message = None
-
-                    if len(args) > 1 and args[1] in preference.value:
-                        value = None
-
-                        match preference:
-                            case Preference.AUTO_BEATCONNECT:
-                                match args[1]:
-                                    case "on":
-                                        value = 1
-                                        message = "Ok, I will now automatically provide Beatconnect links for each /np you send."
-                                    case "off":
-                                        value = 0
-                                        message = "Ok, I will no longer automatically provide Beatconnect links to you."
-
-                        self.db.update_user(self.ripple.get_user_id(ctx.sender), preference_name, value)
-                    else:
-                        message = f"Accepted values for {preference}: {", ".join([chr(39) + value + chr(39) for value in preference.value])}"
-                case invalid:
-                    message = f"Unknown preference: '{invalid}'"
-        else:
+        if not args:
             message = self.docs["preferences"]
+            raise AbortException(message, ctx)
+
+        preference_name = args[0].lower().strip()
+
+        if preference_name == "list":
+            message = f"List of preferences: {", ".join([preference_name_.lower() for preference_name_ in Preference.__members__.keys()])}"
+            raise AbortException(message, ctx)
+
+        try:
+            preference = Preference[preference_name.upper()]
+        except KeyError:
+            message = f"Unknown preference: '{preference_name}'"
+            raise AbortException(message, ctx)
+
+        preference_value = " ".join(args[1:]).lower().strip()
+
+        if preference_value not in preference.value:
+            message = f"Accepted values for {preference_name}: {", ".join([chr(39) + value + chr(39) for value in preference.value])}"
+            raise AbortException(message, ctx)
+
+        message = None
+
+        match preference:
+            case Preference.AUTO_BEATCONNECT:
+                match preference_value:
+                    case "on":
+                        preference_value = 1
+                        message = "Ok, I will now automatically provide Beatconnect links for each /np you send."
+                    case "off":
+                        preference_value = 0
+                        message = "Ok, I will no longer automatically provide Beatconnect links to you."
+            case Preference.DM_LAST:
+                match preference_value:
+                    case "on":
+                        preference_value = 1
+                        message = "Ok, I will now only reply to your !last's via DM"
+                    case "off":
+                        preference_value = 0
+                        message = "Ok, I will no longer only reply to your !last's via DM"
+
+        self.db.update_user(self.ripple.get_user_id(ctx.sender), preference_name, preference_value)
 
         await self.irc.privmsg(message, channel=self.get_channel(ctx))
         
     async def discord(self, ctx: ContextManager):
         message = f"Ripple Discord invite link: {discord_link}"
-
         await self.irc.privmsg(message, channel=self.get_channel(ctx))
 
     async def send_beatconnect_link(self, ctx: ContextManager):
@@ -244,9 +264,6 @@ class ChatBot:
         else:
             self.logger.log(f"Error finding link pattern match!?")
 
-    def get_channel(self, ctx: ContextManager):
-        return ctx.channel if not ctx.channel == self.irc.nickname else ctx.sender
-
     async def parse_for_bancho(self, ctx: ContextManager):
         if "bancho" in ctx.message:
             await self.irc.privmsg(f"bancho is dead :*", channel=self.get_channel(ctx))
@@ -278,4 +295,6 @@ class ChatBot:
             f"{round(float(beatmap["difficultyrating"]), 2)}★"
         )
 
-        await self.irc.privmsg(message, channel=self.get_channel(ctx))
+        channel = ctx.channel if not bool(self.db.get_user_column(self.ripple.get_user_id(ctx.sender), "dm_last")) else ctx.sender
+
+        await self.irc.privmsg(message, channel=channel)

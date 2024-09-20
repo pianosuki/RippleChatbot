@@ -6,7 +6,8 @@
                 "columns":
                 [
                     {"name": "id", "type": "INTEGER", "primary_key": true, "nullability": false},
-                    {"name": "auto_beatconnect", "type": "INTEGER"}
+                    {"name": "auto_beatconnect", "type": "INTEGER"},
+                    {"name": "dm_last", "type": "INTEGER"}
                 ]
             }
         ],
@@ -15,7 +16,8 @@
             "users":
                 {
                     "id": 0,
-                    "auto_beatconnect": 1
+                    "auto_beatconnect": 1,
+                    "dm_last": 0
                 }
         }
 }

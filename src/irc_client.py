@@ -70,7 +70,6 @@ class IRCClient:
             self.alive.clear()
             await self.ping()
             await asyncio.wait_for(self.alive.wait(), timeout)
-
         except (ConnectionError, OSError, TimeoutError):
             raise RuntimeError(f"Connection lost!")
 
