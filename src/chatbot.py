@@ -21,6 +21,7 @@ from .config import *
 HEARTBEAT_RATE = 60
 HEARTBEAT_TIMEOUT = 5
 LAST_SCORE_TIMEOUT = 1
+FOKABOT_USER_ID = 999
 
 
 class ChatBot:
@@ -269,6 +270,9 @@ class ChatBot:
             await self.irc.privmsg(f"bancho is dead :*", channel=self.get_channel(ctx))
 
     async def last(self, ctx: ContextManager):
+        if self.delta.is_online(FOKABOT_USER_ID):
+            return
+
         score = self.ws.last_scores.get(ctx.sender)
 
         if not score:
