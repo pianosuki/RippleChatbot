@@ -261,7 +261,13 @@ class ChatBot:
                     ctx.song = song_match.group()
                     ctx.difficulty = difficulty_match.group()
 
-            await self.irc.privmsg(f"[Beatconnect]: [https://beatconnect.io/b/{ctx.beatmapset_id} {ctx.song}]", channel=self.get_channel(ctx))
+            message = (
+                f"[Download]: "
+                f"[https://beatconnect.io/b/{ctx.beatmapset_id} Beatconnect] | "
+                f"[https://osu.ppy.sh/beatmapsets/{ctx.beatmapset_id} Bancho]"
+            )
+
+            await self.irc.privmsg(message, channel=self.get_channel(ctx))
         else:
             self.logger.log(f"Error finding link pattern match!?")
 
